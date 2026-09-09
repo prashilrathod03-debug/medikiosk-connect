@@ -10,33 +10,89 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PhysicianRouteImport } from './routes/physician'
+import { Route as ApiChatRouteImport } from './routes/api/chat'
+import { Route as ApiGenerateSummaryRouteImport } from './routes/api/generate-summary'
+import { Route as ApiOcrExtractRouteImport } from './routes/api/ocr-extract'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PhysicianRoute = PhysicianRouteImport.update({
+  id: '/physician',
+  path: '/physician',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiChatRoute = ApiChatRouteImport.update({
+  id: '/api/chat',
+  path: '/api/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiGenerateSummaryRoute = ApiGenerateSummaryRouteImport.update({
+  id: '/api/generate-summary',
+  path: '/api/generate-summary',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiOcrExtractRoute = ApiOcrExtractRouteImport.update({
+  id: '/api/ocr-extract',
+  path: '/api/ocr-extract',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/physician': typeof PhysicianRoute
+  '/api/chat': typeof ApiChatRoute
+  '/api/generate-summary': typeof ApiGenerateSummaryRoute
+  '/api/ocr-extract': typeof ApiOcrExtractRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/physician': typeof PhysicianRoute
+  '/api/chat': typeof ApiChatRoute
+  '/api/generate-summary': typeof ApiGenerateSummaryRoute
+  '/api/ocr-extract': typeof ApiOcrExtractRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/physician': typeof PhysicianRoute
+  '/api/chat': typeof ApiChatRoute
+  '/api/generate-summary': typeof ApiGenerateSummaryRoute
+  '/api/ocr-extract': typeof ApiOcrExtractRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/physician'
+    | '/api/chat'
+    | '/api/generate-summary'
+    | '/api/ocr-extract'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/physician'
+    | '/api/chat'
+    | '/api/generate-summary'
+    | '/api/ocr-extract'
+  id:
+    | '__root__'
+    | '/'
+    | '/physician'
+    | '/api/chat'
+    | '/api/generate-summary'
+    | '/api/ocr-extract'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PhysicianRoute: typeof PhysicianRoute
+  ApiChatRoute: typeof ApiChatRoute
+  ApiGenerateSummaryRoute: typeof ApiGenerateSummaryRoute
+  ApiOcrExtractRoute: typeof ApiOcrExtractRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +104,43 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/physician': {
+      id: '/physician'
+      path: '/physician'
+      fullPath: '/physician'
+      preLoaderRoute: typeof PhysicianRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/chat': {
+      id: '/api/chat'
+      path: '/api/chat'
+      fullPath: '/api/chat'
+      preLoaderRoute: typeof ApiChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/generate-summary': {
+      id: '/api/generate-summary'
+      path: '/api/generate-summary'
+      fullPath: '/api/generate-summary'
+      preLoaderRoute: typeof ApiGenerateSummaryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ocr-extract': {
+      id: '/api/ocr-extract'
+      path: '/api/ocr-extract'
+      fullPath: '/api/ocr-extract'
+      preLoaderRoute: typeof ApiOcrExtractRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PhysicianRoute: PhysicianRoute,
+  ApiChatRoute: ApiChatRoute,
+  ApiGenerateSummaryRoute: ApiGenerateSummaryRoute,
+  ApiOcrExtractRoute: ApiOcrExtractRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
