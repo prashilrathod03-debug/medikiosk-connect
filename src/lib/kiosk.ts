@@ -10,7 +10,7 @@ export type Patient = {
   age: string;
   gender: string;
   phone: string;
-  abhaId?: string;
+  abhaId?: string | undefined;
   consent: boolean;
   lang: Lang;
 };
@@ -34,7 +34,7 @@ export type KioskDocument = {
   id: string;
   fileName: string;
   kind: string;
-  previewUrl?: string;
+  previewUrl?: string | undefined;
   status: "processing" | "done";
   summary: string;
   labs: LabValue[];
@@ -61,8 +61,8 @@ export type Session = {
   patient: Patient;
   messages: ChatMessage[];
   documents: KioskDocument[];
-  summary?: Summary;
-  tokenNumber?: number;
+  summary?: Summary | undefined;
+  tokenNumber?: number | undefined;
 };
 
 const KEY = "medikiosk.sessions.v1";
