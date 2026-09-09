@@ -200,16 +200,40 @@ export async function saveSummary(sessionId: string, summary: Summary) {
   const { error } = await supabase.from("summaries").insert({
     session_id: sessionId,
     chief_complaint: summary.chiefComplaint,
-    hpi: summary.symptoms,
-    past_history: summary.history,
-    drug_allergy_history: summary.allergies,
-    investigations_summary: summary.abnormalFindings,
-    physician_approved: summary.approved,
+    duration: summary.duration,
+    symptoms: summary.symptoms,
+    history: summary.history,
+    medications: summary.medications,
+    allergies: summary.allergies,
+    vitals_notes: summary.vitalsNotes,
+    abnormal_findings: summary.abnormalFindings,
+    suggested_department: summary.suggestedDepartment,
+    urgency: summary.urgency,
+    physician_notes: summary.physicianNotes,
+    approved: summary.approved,
   });
 
   if (error) throw error;
-
   await updateSession(sessionId, { status: "completed" });
+}
+
+export async function updateSummary(summaryId: string, patch: Partial<Summary>) {
+  const dbPatch: Record<string, unknown> = {};
+  if (patch.chiefComplaint !== undefined) dbPatch.chief_complaint = patch.chiefComplaint;
+  if (patch.duration !== undefined) dbPatch.duration = patch.duration;
+  if (patch.symptoms !== undefined) dbPatch.symptoms = patch.symptoms;
+  if (patch.history !== undefined) dbPatch.history = patch.history;
+  if (patch.medications !== undefined) dbPatch.medications = patch.medications;
+  if (patch.allergies !== undefined) dbPatch.allergies = patch.allergies;
+  if (patch.vitalsNotes !== undefined) dbPatch.vitals_notes = patch.vitalsNotes;
+  if (patch.abnormalFindings !== undefined) dbPatch.abnormal_findings = patch.abnormalFindings;
+  if (patch.suggestedDepartment !== undefined) dbPatch.suggested_department = patch.suggestedDepartment;
+  if (patch.urgency !== undefined) dbPatch.urgency = patch.urgency;
+  if (patch.physicianNotes !== undefined) dbPatch.physician_notes = patch.physicianNotes;
+  if (patch.approved !== undefined) dbPatch.approved = patch.approved;
+
+  const { error } = await supabase.from("summaries").update(dbPatch).eq("id", summaryId);
+  if (error) throw error;
 }
 
 export async function approveSummary(summaryId: string, physicianNotes?: string) {
