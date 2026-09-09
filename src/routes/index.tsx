@@ -6,9 +6,12 @@ import {
   type KioskDocument,
   type Lang,
   type Patient,
-  type Session,
   type Summary,
-  saveSession,
+  createPatient,
+  createSession,
+  updateSession,
+  saveDocument,
+  saveSummary,
   t,
   uid,
 } from "@/lib/kiosk";
@@ -41,7 +44,7 @@ function Kiosk() {
   const [lang, setLang] = useState<Lang>("en");
   const [step, setStep] = useState(0);
   const [patient, setPatient] = useState<Patient>({
-    id: uid(),
+    id: "",
     name: "",
     age: "",
     gender: "",
@@ -54,28 +57,16 @@ function Kiosk() {
   const [documents, setDocuments] = useState<KioskDocument[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [token, setToken] = useState<number | null>(null);
-  const sessionId = useRef(uid());
+  const sessionId = useRef<string | null>(null);
 
   const tr = (k: string) => t(k, lang);
 
-  function persist(extra: Partial<Session> = {}) {
-    const session: Session = {
-      id: sessionId.current,
-      createdAt: Date.now(),
-      patient: { ...patient, lang },
-      messages,
-      documents,
-      summary: summary ?? undefined,
-      tokenNumber: token ?? undefined,
-      ...extra,
-    };
-    saveSession(session);
-  }
-
   useEffect(() => {
-    if (step > 0) persist();
+    if (step > 0 && sessionId.current) {
+      void updateSession(sessionId.current, { transcript: messages });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, documents, summary, token, step]);
+  }, [messages, step]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -125,7 +116,22 @@ function Kiosk() {
             patient={patient}
             setPatient={setPatient}
             onBack={() => setStep(0)}
-            onNext={() => setStep(2)}
+            onNext={async () => {
+              try {
+                const created = await createPatient({ ...patient, lang });
+                const newSessionId = await createSession(created.id);
+                setPatient(created);
+                sessionId.current = newSessionId;
+                setStep(2);
+              } catch (err) {
+                console.error(err);
+                alert(
+                  lang === "hi"
+                    ? "आपका विवरण सहेजा नहीं जा सका। कृपया अपना कनेक्शन जांचें।"
+                    : "Could not save your details. Please check your connection and try again.",
+                );
+              }
+            }}
           />
         )}
         {step === 2 && (
@@ -142,6 +148,7 @@ function Kiosk() {
             lang={lang}
             documents={documents}
             setDocuments={setDocuments}
+            sessionId={sessionId.current}
             onBack={() => setStep(2)}
             onNext={async () => {
               setStep(4);
@@ -156,6 +163,9 @@ function Kiosk() {
               const s: Summary = { ...data, physicianNotes: "", approved: false };
               setSummary(s);
               setToken(data.tokenNumber);
+              if (sessionId.current) {
+                void saveSummary(sessionId.current, s);
+              }
             }}
           />
         )}
@@ -165,9 +175,9 @@ function Kiosk() {
             summary={summary}
             token={token}
             onRestart={() => {
-              sessionId.current = uid();
+              sessionId.current = null;
               setPatient({
-                id: uid(),
+                id: "",
                 name: "",
                 age: "",
                 gender: "",
@@ -307,10 +317,26 @@ function Identify({
   patient: Patient;
   setPatient: (p: Patient) => void;
   onBack: () => void;
-  onNext: () => void;
+  onNext: () => void | Promise<void>;
 }) {
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   const ok = patient.name && patient.age && patient.phone && patient.consent;
+
+  async function handleNext() {
+    if (!ok) {
+      setError(t("required", lang));
+      return;
+    }
+    setError("");
+    setSaving(true);
+    try {
+      await onNext();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <Card>
       <h2 className="text-3xl font-bold">{t("identify", lang)}</h2>
@@ -387,10 +413,8 @@ function Identify({
         <BigButton variant="ghost" onClick={onBack}>
           {t("back", lang)}
         </BigButton>
-        <BigButton
-          onClick={() => (ok ? onNext() : setError(t("required", lang)))}
-        >
-          {t("continue", lang)}
+        <BigButton onClick={handleNext} disabled={saving}>
+          {saving ? "…" : t("continue", lang)}
         </BigButton>
       </div>
     </Card>
@@ -558,12 +582,14 @@ function Documents({
   lang,
   documents,
   setDocuments,
+  sessionId,
   onBack,
   onNext,
 }: {
   lang: Lang;
   documents: KioskDocument[];
   setDocuments: React.Dispatch<React.SetStateAction<KioskDocument[]>>;
+  sessionId: string | null;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -588,13 +614,19 @@ function Documents({
         body: JSON.stringify({ fileName: file.name, index }),
       });
       const data = await res.json();
-      setDocuments((d) =>
-        d.map((doc) =>
-          doc.id === id
-            ? { ...doc, status: "done", kind: data.kind, summary: data.summary, labs: data.labs }
-            : doc,
-        ),
-      );
+      const finished: KioskDocument = {
+        id,
+        fileName: file.name,
+        kind: data.kind,
+        previewUrl,
+        status: "done",
+        summary: data.summary,
+        labs: data.labs,
+      };
+      setDocuments((d) => d.map((doc) => (doc.id === id ? finished : doc)));
+      if (sessionId) {
+        void saveDocument(sessionId, finished);
+      }
     }
   }
 
