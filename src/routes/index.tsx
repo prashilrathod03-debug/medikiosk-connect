@@ -6,12 +6,9 @@ import {
   type KioskDocument,
   type Lang,
   type Patient,
+  type Session,
   type Summary,
-  createPatient,
-  createSession,
-  updateSession,
-  saveDocument,
-  saveSummary,
+  saveSession,
   t,
   uid,
 } from "@/lib/kiosk";
@@ -25,26 +22,31 @@ export const Route = createFileRoute("/")({
         content:
           "Bilingual self-service kiosk for hospital OPD: register, describe symptoms by voice or touch, upload reports and get your token.",
       },
-      { property: "og:title", content: "MediKiosk — Patient Self Check-In" },
+    ],
+    links: [
       {
-        property: "og:description",
-        content:
-          "Register, talk through your symptoms in English or Hindi, upload reports and receive your OPD token.",
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Noto+Serif+Devanagari:wght@500;700&family=Inter:wght@400;600;700;800&display=swap",
       },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Kiosk,
 });
 
-const STEPS = 5;
+const JOURNEY = [
+  { key: "identify", en: "Details", hi: "विवरण" },
+  { key: "intake", en: "Talk", hi: "बातचीत" },
+  { key: "docs", en: "Documents", hi: "दस्तावेज़" },
+  { key: "token", en: "Token", hi: "टोकन" },
+];
+
+const serif = { fontFamily: "'Noto Serif Devanagari', serif" };
 
 function Kiosk() {
   const [lang, setLang] = useState<Lang>("en");
   const [step, setStep] = useState(0);
   const [patient, setPatient] = useState<Patient>({
-    id: "",
+    id: uid(),
     name: "",
     age: "",
     gender: "",
@@ -57,58 +59,64 @@ function Kiosk() {
   const [documents, setDocuments] = useState<KioskDocument[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [token, setToken] = useState<number | null>(null);
-  const sessionId = useRef<string | null>(null);
+  const sessionId = useRef(uid());
 
   const tr = (k: string) => t(k, lang);
 
+  function persist(extra: Partial<Session> = {}) {
+    const session: Session = {
+      id: sessionId.current,
+      createdAt: Date.now(),
+      patient: { ...patient, lang },
+      messages,
+      documents,
+      summary: summary ?? undefined,
+      tokenNumber: token ?? undefined,
+      ...extra,
+    };
+    saveSession(session);
+  }
+
   useEffect(() => {
-    if (step > 0 && sessionId.current) {
-      void updateSession(sessionId.current, { transcript: messages });
-    }
+    if (step > 0) persist();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, step]);
+  }, [messages, documents, summary, token, step]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-10 border-b bg-card/95 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-5 py-4">
+    <div className="min-h-screen" style={{ background: "#F7F1E4", color: "#1C2B3A" }}>
+      <header className="sticky top-0 z-10 border-b" style={{ background: "#F7F1E4EE", borderColor: "#E0D3B2" }}>
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-5 py-5">
           <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-primary text-2xl text-primary-foreground">
+            <div
+              className="grid h-12 w-12 place-items-center rounded-full text-xl font-bold"
+              style={{ background: "#D9821B", color: "#F7F1E4" }}
+            >
               ✚
             </div>
             <div>
-              <p className="text-xl font-bold leading-tight">{tr("brand")}</p>
-              <p className="text-sm text-muted-foreground">{tr("tagline")}</p>
+              <p className="text-2xl font-bold leading-tight" style={serif}>
+                {tr("brand")}
+              </p>
+              <p className="text-sm" style={{ color: "#6B5F4A" }}>
+                {tr("tagline")}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <LangToggle lang={lang} onChange={setLang} />
             <Link
               to="/physician"
-              className="hidden rounded-xl border px-4 py-3 text-base font-semibold hover:bg-accent sm:inline-block"
+              className="hidden rounded-full border-2 px-4 py-3 text-base font-semibold sm:inline-block"
+              style={{ borderColor: "#0E5C4F", color: "#0E5C4F" }}
             >
               {tr("physician")}
             </Link>
           </div>
         </div>
-        {step > 0 && (
-          <div className="mx-auto max-w-5xl px-5 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="h-3 flex-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-primary transition-all"
-                  style={{ width: `${(step / (STEPS - 1)) * 100}%` }}
-                />
-              </div>
-              <span className="text-sm font-semibold text-muted-foreground">
-                {tr("step")} {step} {tr("of")} {STEPS - 1}
-              </span>
-            </div>
-          </div>
-        )}
+        {step > 0 && <Journey step={step} lang={lang} />}
       </header>
 
-      <main className="mx-auto max-w-5xl px-5 py-8 pb-24">
+      <main className="mx-auto max-w-3xl px-5 py-8 pb-24">
         {step === 0 && <Landing lang={lang} setLang={setLang} onStart={() => setStep(1)} />}
         {step === 1 && (
           <Identify
@@ -116,22 +124,7 @@ function Kiosk() {
             patient={patient}
             setPatient={setPatient}
             onBack={() => setStep(0)}
-            onNext={async () => {
-              try {
-                const created = await createPatient({ ...patient, lang });
-                const newSessionId = await createSession(created.id);
-                setPatient(created);
-                sessionId.current = newSessionId;
-                setStep(2);
-              } catch (err) {
-                console.error(err);
-                alert(
-                  lang === "hi"
-                    ? "आपका विवरण सहेजा नहीं जा सका। कृपया अपना कनेक्शन जांचें।"
-                    : "Could not save your details. Please check your connection and try again.",
-                );
-              }
-            }}
+            onNext={() => setStep(2)}
           />
         )}
         {step === 2 && (
@@ -148,23 +141,37 @@ function Kiosk() {
             lang={lang}
             documents={documents}
             setDocuments={setDocuments}
-            sessionId={sessionId.current}
             onBack={() => setStep(2)}
             onNext={async () => {
               setStep(4);
               const answers = messages.filter((m) => m.role === "patient").map((m) => m.text);
               const labs = documents.flatMap((d) => d.labs);
-              const res = await fetch("/api/generate-summary", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ answers, labs, age: patient.age }),
-              });
-              const data = await res.json();
-              const s: Summary = { ...data, physicianNotes: "", approved: false };
-              setSummary(s);
-              setToken(data.tokenNumber);
-              if (sessionId.current) {
-                void saveSummary(sessionId.current, s);
+              try {
+                const res = await fetch("/api/generate-summary", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ answers, labs, age: patient.age }),
+                });
+                const data = await res.json();
+                const s: Summary = { ...data, physicianNotes: "", approved: false };
+                setSummary(s);
+                setToken(data.tokenNumber ?? Math.floor(100 + Math.random() * 900));
+              } catch {
+                setSummary({
+                  chiefComplaint: answers[0] ?? "",
+                  duration: "",
+                  symptoms: answers.join(" "),
+                  history: "",
+                  medications: "",
+                  allergies: "",
+                  vitalsNotes: "",
+                  abnormalFindings: labs.filter((l) => l.abnormal).map((l) => l.name).join(", "),
+                  suggestedDepartment: DEPARTMENTS[0],
+                  urgency: "Routine",
+                  physicianNotes: "",
+                  approved: false,
+                });
+                setToken(Math.floor(100 + Math.random() * 900));
               }
             }}
           />
@@ -175,17 +182,8 @@ function Kiosk() {
             summary={summary}
             token={token}
             onRestart={() => {
-              sessionId.current = null;
-              setPatient({
-                id: "",
-                name: "",
-                age: "",
-                gender: "",
-                phone: "",
-                abhaId: "",
-                consent: false,
-                lang,
-              });
+              sessionId.current = uid();
+              setPatient({ id: uid(), name: "", age: "", gender: "", phone: "", abhaId: "", consent: false, lang });
               setMessages([]);
               setDocuments([]);
               setSummary(null);
@@ -199,18 +197,60 @@ function Kiosk() {
   );
 }
 
+function Journey({ step, lang }: { step: number; lang: Lang }) {
+  return (
+    <div className="mx-auto max-w-3xl px-5 pb-5">
+      <div className="flex items-center">
+        {JOURNEY.map((stop, i) => {
+          const idx = i + 1;
+          const active = idx === step;
+          const done = idx < step;
+          return (
+            <div key={stop.key} className="flex flex-1 items-center last:flex-none">
+              <div className="flex flex-col items-center gap-1.5">
+                <div
+                  className="grid h-9 w-9 place-items-center rounded-full text-sm font-bold transition-colors"
+                  style={{
+                    background: done || active ? "#0E5C4F" : "#E5D8B8",
+                    color: done || active ? "#F7F1E4" : "#8A7B5C",
+                    boxShadow: active ? "0 0 0 4px #D9821B44" : "none",
+                  }}
+                >
+                  {done ? "✓" : idx}
+                </div>
+                <span
+                  className="text-xs font-semibold"
+                  style={{ color: active ? "#1C2B3A" : "#8A7B5C" }}
+                >
+                  {lang === "hi" ? stop.hi : stop.en}
+                </span>
+              </div>
+              {i < JOURNEY.length - 1 && (
+                <div className="mx-2 mb-4 h-0.5 flex-1" style={{ background: done ? "#0E5C4F" : "#E5D8B8" }} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function LangToggle({ lang, onChange }: { lang: Lang; onChange: (l: Lang) => void }) {
   return (
-    <div className="flex overflow-hidden rounded-xl border">
+    <div className="flex overflow-hidden rounded-full border-2" style={{ borderColor: "#E0D3B2" }}>
       {(["en", "hi"] as Lang[]).map((l) => (
         <button
           key={l}
           onClick={() => onChange(l)}
-          className={`px-4 py-3 text-base font-semibold ${
-            lang === l ? "bg-primary text-primary-foreground" : "bg-card hover:bg-accent"
-          }`}
+          className="px-4 py-2.5 text-sm font-bold"
+          style={
+            lang === l
+              ? { background: "#0E5C4F", color: "#F7F1E4" }
+              : { background: "transparent", color: "#6B5F4A" }
+          }
         >
-          {l === "en" ? "English" : "हिन्दी"}
+          {l === "en" ? "EN" : "हि"}
         </button>
       ))}
     </div>
@@ -219,7 +259,12 @@ function LangToggle({ lang, onChange }: { lang: Lang; onChange: (l: Lang) => voi
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`rounded-3xl border bg-card p-6 shadow-sm sm:p-8 ${className}`}>{children}</div>
+    <div
+      className={`rounded-[2rem] border p-6 sm:p-9 ${className}`}
+      style={{ background: "#FFFDF7", borderColor: "#E5D8B8" }}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -228,49 +273,49 @@ function BigButton({
   onClick,
   variant = "primary",
   disabled,
-  type = "button",
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   variant?: "primary" | "ghost";
   disabled?: boolean;
-  type?: "button" | "submit";
 }) {
-  const base =
-    "min-h-16 rounded-2xl px-8 text-lg font-bold transition-colors disabled:opacity-50 w-full sm:w-auto";
-  const styles =
+  const styles: React.CSSProperties =
     variant === "primary"
-      ? "bg-primary text-primary-foreground hover:bg-primary/90"
-      : "border bg-card hover:bg-accent";
+      ? { background: "#D9821B", color: "#FFFDF7" }
+      : { background: "transparent", color: "#1C2B3A", border: "2px solid #E5D8B8" };
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${styles}`}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="min-h-16 w-full rounded-full px-8 text-lg font-bold transition-opacity disabled:opacity-40 sm:w-auto"
+      style={styles}
+    >
       {children}
     </button>
   );
 }
 
-function Landing({
-  lang,
-  setLang,
-  onStart,
-}: {
-  lang: Lang;
-  setLang: (l: Lang) => void;
-  onStart: () => void;
-}) {
+function Landing({ lang, setLang, onStart }: { lang: Lang; setLang: (l: Lang) => void; onStart: () => void }) {
   return (
     <Card className="text-center">
-      <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl">{t("brand", lang)}</h1>
-      <p className="mt-3 text-xl text-muted-foreground">{t("tagline", lang)}</p>
+      <h1 className="text-5xl font-bold tracking-tight sm:text-6xl" style={serif}>
+        {t("brand", lang)}
+      </h1>
+      <p className="mt-3 text-xl" style={{ color: "#6B5F4A" }}>
+        {t("tagline", lang)}
+      </p>
       <p className="mt-10 text-lg font-semibold">{t("chooseLang", lang)}</p>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         {(["en", "hi"] as Lang[]).map((l) => (
           <button
             key={l}
             onClick={() => setLang(l)}
-            className={`min-h-24 rounded-3xl border-2 text-2xl font-bold ${
-              lang === l ? "border-primary bg-accent" : "border-border bg-card"
-            }`}
+            className="min-h-24 rounded-2xl border-2 text-2xl font-bold transition-colors"
+            style={
+              lang === l
+                ? { borderColor: "#D9821B", background: "#F3E4C8" }
+                : { borderColor: "#E5D8B8", background: "#FFFDF7" }
+            }
           >
             {l === "en" ? "English" : "हिन्दी"}
           </button>
@@ -280,7 +325,7 @@ function Landing({
         <BigButton onClick={onStart}>{t("start", lang)}</BigButton>
       </div>
       <div className="mt-6">
-        <Link to="/physician" className="text-base font-semibold text-primary underline">
+        <Link to="/physician" className="text-base font-semibold underline" style={{ color: "#0E5C4F" }}>
           {t("physician", lang)}
         </Link>
       </div>
@@ -288,13 +333,7 @@ function Landing({
   );
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
       <span className="mb-2 block text-base font-semibold">{label}</span>
@@ -303,8 +342,12 @@ function Field({
   );
 }
 
-const inputCls =
-  "w-full min-h-16 rounded-2xl border bg-card px-5 text-lg outline-none focus:border-primary focus:ring-2 focus:ring-ring/40";
+const inputStyle: React.CSSProperties = {
+  background: "#FFFDF7",
+  border: "2px solid #E5D8B8",
+  color: "#1C2B3A",
+};
+const inputCls = "w-full min-h-16 rounded-2xl px-5 text-lg outline-none focus:ring-2";
 
 function Identify({
   lang,
@@ -317,44 +360,21 @@ function Identify({
   patient: Patient;
   setPatient: (p: Patient) => void;
   onBack: () => void;
-  onNext: () => void | Promise<void>;
+  onNext: () => void;
 }) {
   const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
   const ok = patient.name && patient.age && patient.phone && patient.consent;
-
-  async function handleNext() {
-    if (!ok) {
-      setError(t("required", lang));
-      return;
-    }
-    setError("");
-    setSaving(true);
-    try {
-      await onNext();
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
     <Card>
-      <h2 className="text-3xl font-bold">{t("identify", lang)}</h2>
+      <h2 className="text-3xl font-bold" style={serif}>
+        {t("identify", lang)}
+      </h2>
       <div className="mt-6 grid gap-5 sm:grid-cols-2">
         <Field label={t("name", lang)}>
-          <input
-            className={inputCls}
-            value={patient.name}
-            onChange={(e) => setPatient({ ...patient, name: e.target.value })}
-          />
+          <input className={inputCls} style={inputStyle} value={patient.name} onChange={(e) => setPatient({ ...patient, name: e.target.value })} />
         </Field>
         <Field label={t("age", lang)}>
-          <input
-            className={inputCls}
-            inputMode="numeric"
-            value={patient.age}
-            onChange={(e) => setPatient({ ...patient, age: e.target.value })}
-          />
+          <input className={inputCls} style={inputStyle} inputMode="numeric" value={patient.age} onChange={(e) => setPatient({ ...patient, age: e.target.value })} />
         </Field>
         <Field label={t("gender", lang)}>
           <div className="grid grid-cols-3 gap-3">
@@ -362,9 +382,8 @@ function Identify({
               <button
                 key={g}
                 onClick={() => setPatient({ ...patient, gender: g })}
-                className={`min-h-16 rounded-2xl border text-lg font-semibold ${
-                  patient.gender === g ? "border-primary bg-accent" : "bg-card"
-                }`}
+                className="min-h-16 rounded-2xl border-2 text-lg font-semibold"
+                style={patient.gender === g ? { borderColor: "#D9821B", background: "#F3E4C8" } : { borderColor: "#E5D8B8", background: "#FFFDF7" }}
               >
                 {t(g, lang)}
               </button>
@@ -372,34 +391,21 @@ function Identify({
           </div>
         </Field>
         <Field label={t("phone", lang)}>
-          <input
-            className={inputCls}
-            inputMode="tel"
-            value={patient.phone}
-            onChange={(e) => setPatient({ ...patient, phone: e.target.value })}
-          />
+          <input className={inputCls} style={inputStyle} inputMode="tel" value={patient.phone} onChange={(e) => setPatient({ ...patient, phone: e.target.value })} />
         </Field>
         <div className="sm:col-span-2">
           <Field label={t("abha", lang)}>
-            <input
-              className={inputCls}
-              value={patient.abhaId}
-              onChange={(e) => setPatient({ ...patient, abhaId: e.target.value })}
-            />
+            <input className={inputCls} style={inputStyle} value={patient.abhaId} onChange={(e) => setPatient({ ...patient, abhaId: e.target.value })} />
           </Field>
         </div>
       </div>
 
-      <div className="mt-8 rounded-2xl bg-secondary p-5">
+      <div className="mt-8 rounded-2xl p-5" style={{ background: "#F3E4C8" }}>
         <p className="text-lg font-bold">{t("consentTitle", lang)}</p>
-        <button
-          onClick={() => setPatient({ ...patient, consent: !patient.consent })}
-          className="mt-3 flex w-full items-start gap-4 text-left"
-        >
+        <button onClick={() => setPatient({ ...patient, consent: !patient.consent })} className="mt-3 flex w-full items-start gap-4 text-left">
           <span
-            className={`mt-1 grid h-10 w-10 shrink-0 place-items-center rounded-xl border-2 text-xl ${
-              patient.consent ? "border-primary bg-primary text-primary-foreground" : "bg-card"
-            }`}
+            className="mt-1 grid h-10 w-10 shrink-0 place-items-center rounded-lg border-2 text-xl"
+            style={patient.consent ? { borderColor: "#0E5C4F", background: "#0E5C4F", color: "#FFFDF7" } : { borderColor: "#C9B98F", background: "#FFFDF7" }}
           >
             {patient.consent ? "✓" : ""}
           </span>
@@ -407,15 +413,17 @@ function Identify({
         </button>
       </div>
 
-      {error && <p className="mt-4 text-base font-semibold text-destructive">{error}</p>}
+      {error && (
+        <p className="mt-4 text-base font-semibold" style={{ color: "#B8452E" }}>
+          {error}
+        </p>
+      )}
 
       <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-between">
         <BigButton variant="ghost" onClick={onBack}>
           {t("back", lang)}
         </BigButton>
-        <BigButton onClick={handleNext} disabled={saving}>
-          {saving ? "…" : t("continue", lang)}
-        </BigButton>
+        <BigButton onClick={() => (ok ? onNext() : setError(t("required", lang)))}>{t("continue", lang)}</BigButton>
       </div>
     </Card>
   );
@@ -482,6 +490,16 @@ function Intake({
       setMessages((m) => [...m, { id: uid(), role: "assistant", text: data.reply, at: Date.now() }]);
       speak(data.reply);
       if (data.done) setDone(true);
+    } catch {
+      setMessages((m) => [
+        ...m,
+        {
+          id: uid(),
+          role: "assistant",
+          text: lang === "hi" ? "क्षमा करें, कृपया फिर से प्रयास करें।" : "Sorry, please try again.",
+          at: Date.now(),
+        },
+      ]);
     } finally {
       setBusy(false);
     }
@@ -491,11 +509,7 @@ function Intake({
     const w = window as any;
     const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!SR) {
-      alert(
-        lang === "hi"
-          ? "इस ब्राउज़र में आवाज़ पहचान उपलब्ध नहीं है। कृपया टाइप करें।"
-          : "Voice input is not available in this browser. Please type instead.",
-      );
+      alert(lang === "hi" ? "इस ब्राउज़र में आवाज़ पहचान उपलब्ध नहीं है। कृपया टाइप करें।" : "Voice input is not available in this browser. Please type instead.");
       return;
     }
     if (listening) {
@@ -520,27 +534,29 @@ function Intake({
 
   return (
     <Card>
-      <h2 className="text-3xl font-bold">{t("intake", lang)}</h2>
+      <h2 className="text-3xl font-bold" style={serif}>
+        {t("intake", lang)}
+      </h2>
 
       <div className="mt-6 max-h-[45vh] space-y-4 overflow-y-auto pr-1">
         {messages.map((m) => (
-          <div
-            key={m.id}
-            className={`flex ${m.role === "patient" ? "justify-end" : "justify-start"}`}
-          >
+          <div key={m.id} className={`flex ${m.role === "patient" ? "justify-end" : "justify-start"}`}>
             <div
-              className={`max-w-[85%] rounded-3xl px-5 py-4 text-lg leading-relaxed ${
+              className="max-w-[85%] rounded-3xl px-5 py-4 text-lg leading-relaxed"
+              style={
                 m.role === "patient"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-secondary-foreground"
-              }`}
+                  ? { background: "#0E5C4F", color: "#FFFDF7" }
+                  : { background: "#EDE2CC", color: "#1C2B3A" }
+              }
             >
               {m.text}
             </div>
           </div>
         ))}
         {busy && (
-          <div className="rounded-3xl bg-secondary px-5 py-4 text-lg text-muted-foreground">…</div>
+          <div className="rounded-3xl px-5 py-4 text-lg" style={{ background: "#EDE2CC", color: "#8A7B5C" }}>
+            …
+          </div>
         )}
         <div ref={endRef} />
       </div>
@@ -548,14 +564,14 @@ function Intake({
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
         <button
           onClick={toggleMic}
-          className={`grid min-h-16 w-full place-items-center rounded-2xl border-2 px-6 text-lg font-bold sm:w-56 ${
-            listening ? "animate-pulse border-primary bg-accent" : "bg-card"
-          }`}
+          className="grid min-h-16 w-full place-items-center rounded-2xl border-2 px-6 text-lg font-bold sm:w-56"
+          style={listening ? { borderColor: "#D9821B", background: "#F3E4C8" } : { borderColor: "#E5D8B8", background: "#FFFDF7" }}
         >
           🎤 {listening ? t("listening", lang) : t("speak", lang)}
         </button>
         <input
           className={inputCls}
+          style={inputStyle}
           placeholder={t("typeHere", lang)}
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -582,14 +598,12 @@ function Documents({
   lang,
   documents,
   setDocuments,
-  sessionId,
   onBack,
   onNext,
 }: {
   lang: Lang;
   documents: KioskDocument[];
   setDocuments: React.Dispatch<React.SetStateAction<KioskDocument[]>>;
-  sessionId: string | null;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -604,35 +618,26 @@ function Documents({
       const id = uid();
       const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
       const index = counter.current++;
-      setDocuments((d) => [
-        ...d,
-        { id, fileName: file.name, kind: "", previewUrl, status: "processing", summary: "", labs: [] },
-      ]);
-      const res = await fetch("/api/ocr-extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: file.name, index }),
-      });
-      const data = await res.json();
-      const finished: KioskDocument = {
-        id,
-        fileName: file.name,
-        kind: data.kind,
-        previewUrl,
-        status: "done",
-        summary: data.summary,
-        labs: data.labs,
-      };
-      setDocuments((d) => d.map((doc) => (doc.id === id ? finished : doc)));
-      if (sessionId) {
-        void saveDocument(sessionId, finished);
+      setDocuments((d) => [...d, { id, fileName: file.name, kind: "", previewUrl, status: "processing", summary: "", labs: [] }]);
+      try {
+        const res = await fetch("/api/ocr-extract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileName: file.name, index }),
+        });
+        const data = await res.json();
+        setDocuments((d) => d.map((doc) => (doc.id === id ? { ...doc, status: "done", kind: data.kind, summary: data.summary, labs: data.labs } : doc)));
+      } catch {
+        setDocuments((d) => d.map((doc) => (doc.id === id ? { ...doc, status: "done", kind: "Document", summary: "Could not read this file automatically.", labs: [] } : doc)));
       }
     }
   }
 
   return (
     <Card>
-      <h2 className="text-3xl font-bold">{t("docs", lang)}</h2>
+      <h2 className="text-3xl font-bold" style={serif}>
+        {t("docs", lang)}
+      </h2>
 
       <div
         onDragOver={(e) => {
@@ -645,9 +650,8 @@ function Documents({
           setDrag(false);
           void handleFiles(e.dataTransfer.files);
         }}
-        className={`mt-6 rounded-3xl border-2 border-dashed p-8 text-center ${
-          drag ? "border-primary bg-accent" : "border-border bg-secondary/40"
-        }`}
+        className="mt-6 rounded-3xl border-2 border-dashed p-8 text-center"
+        style={drag ? { borderColor: "#D9821B", background: "#F3E4C8" } : { borderColor: "#E5D8B8", background: "#F3ECDA" }}
       >
         <p className="text-lg font-semibold">{t("dropHere", lang)}</p>
         <div className="mt-5 flex flex-col justify-center gap-3 sm:flex-row">
@@ -656,49 +660,31 @@ function Documents({
             📷 {t("camera", lang)}
           </BigButton>
         </div>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*,application/pdf"
-          multiple
-          hidden
-          onChange={(e) => void handleFiles(e.target.files)}
-        />
-        <input
-          ref={camRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          hidden
-          onChange={(e) => void handleFiles(e.target.files)}
-        />
+        <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple hidden onChange={(e) => void handleFiles(e.target.files)} />
+        <input ref={camRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => void handleFiles(e.target.files)} />
       </div>
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         {documents.map((doc) => (
-          <div key={doc.id} className="rounded-3xl border bg-card p-5">
+          <div key={doc.id} className="rounded-3xl border p-5" style={{ borderColor: "#E5D8B8", background: "#FFFDF7" }}>
             <div className="flex items-center gap-4">
               {doc.previewUrl ? (
-                <img
-                  src={doc.previewUrl}
-                  alt={doc.fileName}
-                  className="h-16 w-16 rounded-xl object-cover"
-                />
+                <img src={doc.previewUrl} alt={doc.fileName} className="h-16 w-16 rounded-xl object-cover" />
               ) : (
-                <div className="grid h-16 w-16 place-items-center rounded-xl bg-secondary text-2xl">
+                <div className="grid h-16 w-16 place-items-center rounded-xl text-2xl" style={{ background: "#EDE2CC" }}>
                   📄
                 </div>
               )}
               <div className="min-w-0">
                 <p className="truncate text-base font-bold">{doc.fileName}</p>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm" style={{ color: "#8A7B5C" }}>
                   {doc.status === "processing" ? t("processing", lang) : doc.kind}
                 </p>
               </div>
             </div>
             {doc.status === "processing" && (
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
-                <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
+              <div className="mt-4 h-2 overflow-hidden rounded-full" style={{ background: "#EDE2CC" }}>
+                <div className="h-full w-1/2 animate-pulse rounded-full" style={{ background: "#D9821B" }} />
               </div>
             )}
             {doc.status === "done" && (
@@ -709,11 +695,8 @@ function Documents({
                     {doc.labs.map((l) => (
                       <li
                         key={l.name}
-                        className={`flex items-center justify-between rounded-xl px-4 py-3 text-base ${
-                          l.abnormal
-                            ? "bg-destructive/10 font-bold text-destructive"
-                            : "bg-secondary"
-                        }`}
+                        className="flex items-center justify-between rounded-xl px-4 py-3 text-base"
+                        style={l.abnormal ? { background: "#B8452E1A", color: "#B8452E", fontWeight: 700 } : { background: "#EDE2CC" }}
                       >
                         <span>{l.name}</span>
                         <span>
@@ -740,29 +723,23 @@ function Documents({
   );
 }
 
-function Done({
-  lang,
-  summary,
-  token,
-  onRestart,
-}: {
-  lang: Lang;
-  summary: Summary | null;
-  token: number | null;
-  onRestart: () => void;
-}) {
+function Done({ lang, summary, token, onRestart }: { lang: Lang; summary: Summary | null; token: number | null; onRestart: () => void }) {
   if (!summary) {
     return (
       <Card className="text-center">
         <p className="text-2xl font-bold">…</p>
-        <p className="mt-2 text-lg text-muted-foreground">{t("processing", lang)}</p>
+        <p className="mt-2 text-lg" style={{ color: "#8A7B5C" }}>
+          {t("processing", lang)}
+        </p>
       </Card>
     );
   }
   return (
     <Card>
-      <h2 className="text-3xl font-bold">{t("summary", lang)}</h2>
-      <div className="mt-6 rounded-3xl bg-primary p-6 text-center text-primary-foreground">
+      <h2 className="text-3xl font-bold" style={serif}>
+        {t("summary", lang)}
+      </h2>
+      <div className="mt-6 rounded-3xl p-6 text-center" style={{ background: "#0E5C4F", color: "#FFFDF7" }}>
         <p className="text-lg opacity-90">{t("token", lang)}</p>
         <p className="text-6xl font-extrabold">{token}</p>
         <p className="mt-3 text-lg">
@@ -778,9 +755,11 @@ function Done({
           ["Abnormal findings", summary.abnormalFindings],
           ["Urgency", summary.urgency],
         ].map(([k, v]) => (
-          <div key={k} className="rounded-2xl bg-secondary p-4">
-            <dt className="text-sm font-semibold uppercase text-muted-foreground">{k}</dt>
-            <dd className="mt-1 text-lg">{v}</dd>
+          <div key={k} className="rounded-2xl p-4" style={{ background: "#EDE2CC" }}>
+            <dt className="text-sm font-semibold uppercase" style={{ color: "#8A7B5C" }}>
+              {k}
+            </dt>
+            <dd className="mt-1 text-lg">{v || "—"}</dd>
           </div>
         ))}
       </dl>
@@ -792,7 +771,7 @@ function Done({
           <BigButton>{t("physician", lang)}</BigButton>
         </Link>
       </div>
-      <p className="mt-4 text-sm text-muted-foreground">
+      <p className="mt-4 text-sm" style={{ color: "#8A7B5C" }}>
         Departments available: {DEPARTMENTS.join(", ")}
       </p>
     </Card>
