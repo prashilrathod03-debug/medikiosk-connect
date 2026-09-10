@@ -1,6 +1,6 @@
-// Shared types, i18n strings and Supabase-backed persistence for MediKiosk.
-
-import { supabase } from "./supabase";
+// Shared types, i18n strings and local persistence for MediKiosk.
+// Persistence is browser-local so the kiosk and the physician dashboard
+// share data without requiring backend setup.
 
 export type Lang = "en" | "hi";
 
@@ -65,7 +65,25 @@ export type Session = {
   tokenNumber?: number | undefined;
 };
 
-export const uid = () => crypto.randomUUID();
+const KEY = "medikiosk.sessions.v1";
+
+export function loadSessions(): Session[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(window.localStorage.getItem(KEY) ?? "[]") as Session[];
+  } catch {
+    return [];
+  }
+}
+
+export function saveSession(session: Session) {
+  if (typeof window === "undefined") return;
+  const all = loadSessions().filter((s) => s.id !== session.id);
+  all.unshift(session);
+  window.localStorage.setItem(KEY, JSON.stringify(all.slice(0, 50)));
+}
+
+export const uid = () => Math.random().toString(36).slice(2, 10);
 
 export const DEPARTMENTS = [
   "General Medicine",
@@ -81,10 +99,7 @@ type Dict = Record<string, { en: string; hi: string }>;
 
 export const T: Dict = {
   brand: { en: "MediKiosk", hi: "मेडीकिओस्क" },
-  tagline: {
-    en: "Hospital OPD self check-in",
-    hi: "अस्पताल ओपीडी स्वयं पंजीकरण",
-  },
+  tagline: { en: "Hospital OPD self check-in", hi: "अस्पताल ओपीडी स्वयं पंजीकरण" },
   chooseLang: { en: "Choose your language", hi: "अपनी भाषा चुनें" },
   start: { en: "Start check-in", hi: "पंजीकरण शुरू करें" },
   physician: { en: "Physician login", hi: "चिकित्सक लॉगिन" },
@@ -112,10 +127,7 @@ export const T: Dict = {
   typeHere: { en: "Type your answer", hi: "अपना उत्तर लिखें" },
   send: { en: "Send", hi: "भेजें" },
   docs: { en: "Upload reports", hi: "रिपोर्ट अपलोड करें" },
-  dropHere: {
-    en: "Drag & drop, or choose a file / use camera",
-    hi: "यहाँ खींचें, या फ़ाइल चुनें / कैमरा उपयोग करें",
-  },
+  dropHere: { en: "Drag & drop, or choose a file / use camera", hi: "यहाँ खींचें, या फ़ाइल चुनें / कैमरा उपयोग करें" },
   chooseFile: { en: "Choose file", hi: "फ़ाइल चुनें" },
   camera: { en: "Camera", hi: "कैमरा" },
   processing: { en: "Reading document…", hi: "दस्तावेज़ पढ़ा जा रहा है…" },
@@ -126,134 +138,8 @@ export const T: Dict = {
   token: { en: "Token number", hi: "टोकन नंबर" },
   goTo: { en: "Please proceed to", hi: "कृपया जाएँ" },
   newPatient: { en: "New patient", hi: "नया मरीज़" },
-  required: {
-    en: "Please fill name, age and phone, and accept consent.",
-    hi: "कृपया नाम, आयु, फ़ोन भरें और सहमति दें।",
-  },
+  required: { en: "Please fill name, age and phone, and accept consent.", hi: "कृपया नाम, आयु, फ़ोन भरें और सहमति दें।" },
 };
 
 export const t = (k: keyof typeof T | string, lang: Lang) =>
   (T[k] ? T[k][lang] : k) as string;
-
-// ---------------------------------------------------------------------------
-// Supabase-backed persistence
-// ---------------------------------------------------------------------------
-
-export async function createPatient(patient: Omit<Patient, "id">): Promise<Patient> {
-  const { data, error } = await supabase
-    .from("patients")
-    .insert({
-      name: patient.name,
-      age: patient.age ? parseInt(patient.age, 10) : null,
-      gender: patient.gender,
-      abha_id: patient.abhaId || null,
-      preferred_language: patient.lang,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  return { ...patient, id: data.id };
-}
-
-export async function createSession(patientId: string): Promise<string> {
-  const { data, error } = await supabase
-    .from("sessions")
-    .insert({ patient_id: patientId, status: "in_progress" })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data.id;
-}
-
-export async function updateSession(
-  sessionId: string,
-  fields: {
-    transcript?: ChatMessage[];
-    status?: string;
-    chief_complaint?: string;
-    red_flag?: boolean;
-  },
-) {
-  const { error } = await supabase
-    .from("sessions")
-    .update({ ...fields, updated_at: new Date().toISOString() })
-    .eq("id", sessionId);
-
-  if (error) throw error;
-}
-
-export async function saveDocument(sessionId: string, doc: KioskDocument) {
-  const { error } = await supabase.from("documents").insert({
-    session_id: sessionId,
-    file_url: doc.fileName,
-    ocr_raw_text: doc.summary,
-    extracted_data: { kind: doc.kind, labs: doc.labs },
-  });
-
-  if (error) throw error;
-}
-
-export async function saveSummary(sessionId: string, summary: Summary) {
-  const { error } = await supabase.from("summaries").insert({
-    session_id: sessionId,
-    chief_complaint: summary.chiefComplaint,
-    duration: summary.duration,
-    symptoms: summary.symptoms,
-    history: summary.history,
-    medications: summary.medications,
-    allergies: summary.allergies,
-    vitals_notes: summary.vitalsNotes,
-    abnormal_findings: summary.abnormalFindings,
-    suggested_department: summary.suggestedDepartment,
-    urgency: summary.urgency,
-    physician_notes: summary.physicianNotes,
-    approved: summary.approved,
-  });
-
-  if (error) throw error;
-  await updateSession(sessionId, { status: "completed" });
-}
-
-export async function updateSummary(summaryId: string, patch: Partial<Summary>) {
-  const dbPatch: Record<string, unknown> = {};
-  if (patch.chiefComplaint !== undefined) dbPatch.chief_complaint = patch.chiefComplaint;
-  if (patch.duration !== undefined) dbPatch.duration = patch.duration;
-  if (patch.symptoms !== undefined) dbPatch.symptoms = patch.symptoms;
-  if (patch.history !== undefined) dbPatch.history = patch.history;
-  if (patch.medications !== undefined) dbPatch.medications = patch.medications;
-  if (patch.allergies !== undefined) dbPatch.allergies = patch.allergies;
-  if (patch.vitalsNotes !== undefined) dbPatch.vitals_notes = patch.vitalsNotes;
-  if (patch.abnormalFindings !== undefined) dbPatch.abnormal_findings = patch.abnormalFindings;
-  if (patch.suggestedDepartment !== undefined) dbPatch.suggested_department = patch.suggestedDepartment;
-  if (patch.urgency !== undefined) dbPatch.urgency = patch.urgency;
-  if (patch.physicianNotes !== undefined) dbPatch.physician_notes = patch.physicianNotes;
-  if (patch.approved !== undefined) dbPatch.approved = patch.approved;
-
-  const { error } = await supabase.from("summaries").update(dbPatch).eq("id", summaryId);
-  if (error) throw error;
-}
-
-export async function approveSummary(summaryId: string, physicianNotes?: string) {
-  const { error } = await supabase
-    .from("summaries")
-    .update({ physician_approved: true })
-    .eq("id", summaryId);
-
-  if (error) throw error;
-}
-
-// Returns raw Supabase rows: each session comes with nested patients (object),
-// documents (array), and summaries (array) via the foreign-key joins.
-export async function loadSessions() {
-  const { data, error } = await supabase
-    .from("sessions")
-    .select("*, patients(*), documents(*), summaries(*)")
-    .order("created_at", { ascending: false })
-    .limit(50);
-
-  if (error) throw error;
-  return data;
-}
